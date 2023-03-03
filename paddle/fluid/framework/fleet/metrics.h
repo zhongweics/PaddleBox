@@ -110,10 +110,6 @@ class BasicAucCalculator {
   double mae() const { return _mae; }
   double actual_ctr() const { return _actual_ctr; }
   double predicted_ctr() const { return _predicted_ctr; }
-<<<<<<< HEAD
-=======
-  // double actual_value() const { return _actual_value; }
->>>>>>> eef70c4fa6eb1bd658c1aa37dfed06600da2e7ab
   double predicted_value() const { return _predicted_value; }
   std::vector<std::vector<double>> continue_bucket_error() const { return _continue_bucket_error; }
   double rmse() const { return _rmse; }

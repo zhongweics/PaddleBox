@@ -112,6 +112,37 @@ void BindBoxWrapper(py::module* m) {
            py::arg("max_batch_size") = 0,
            py::arg("sample_scale_varnam") = "",
            py::call_guard<py::gil_scoped_release>())
+      .def("init_continue_metric",
+           &framework::BoxWrapper::InitContinueMetric,
+           py::arg("method"),
+           py::arg("name"),
+           py::arg("label_varname"),
+           py::arg("pred_varname"),
+           py::arg("cmatch_rank_varname"),
+           py::arg("mask_varname"),
+           py::arg("metric_phase"),
+           py::arg("cmatch_rank_group"),
+           py::arg("ignore_rank"),
+           py::arg("bucket_size") = 1000000,
+           py::arg("mode_collect_in_gpu") = false,
+           py::arg("max_batch_size") = 0,
+           py::arg("sample_scale_varnam") = "",
+           py::arg("bucket_thr") = "",
+           py::arg("ignore_zero_label") = false,
+           py::arg("compute_order_ratio") = false,
+           py::call_guard<py::gil_scoped_release>())
+      .def("get_metric_msg",
+           &framework::BoxWrapper::GetMetricMsg,
+           py::call_guard<py::gil_scoped_release>())
+      .def("get_continue_metric_msg",
+           &framework::BoxWrapper::GetContinueMetricMsg,
+           py::call_guard<py::gil_scoped_release>())
+      .def("get_metric_name_list",
+           &framework::BoxWrapper::GetMetricNameList,
+           py::call_guard<py::gil_scoped_release>())
+      .def("flip_phase",
+           &framework::BoxWrapper::FlipPhase,
+           py::call_guard<py::gil_scoped_release>())
       .def("get_metric_msg",
            &framework::BoxWrapper::GetMetricMsg,
            py::call_guard<py::gil_scoped_release>())
@@ -159,6 +190,42 @@ void BindBoxWrapper(py::module* m) {
            py::call_guard<py::gil_scoped_release>())
       .def("merge_multi_models",
            &framework::BoxWrapper::MergeMultiModels,
+           py::call_guard<py::gil_scoped_release>())
+      .def("get_metric_name_list",
+           &framework::BoxWrapper::GetMetricNameList,
+           py::call_guard<py::gil_scoped_release>())
+      .def("flip_phase",
+           &framework::BoxWrapper::FlipPhase,
+           py::call_guard<py::gil_scoped_release>())
+      .def("set_phase",
+           &framework::BoxWrapper::SetPhase,
+           py::call_guard<py::gil_scoped_release>())
+      .def("init_afs_api",
+           &framework::BoxWrapper::InitAfsAPI,
+           py::call_guard<py::gil_scoped_release>())
+      .def("finalize",
+           &framework::BoxWrapper::Finalize,
+           py::call_guard<py::gil_scoped_release>())
+      .def("release_pool",
+           &framework::BoxWrapper::ReleasePool,
+           py::call_guard<py::gil_scoped_release>())
+      .def("set_dataset_name",
+           &framework::BoxWrapper::SetDatasetName,
+           py::call_guard<py::gil_scoped_release>())
+      .def("set_input_table_dim",
+           &framework::BoxWrapper::SetInputTableDim,
+           py::call_guard<py::gil_scoped_release>())
+      .def("shrink_table",
+           &framework::BoxWrapper::ShrinkTable,
+           py::call_guard<py::gil_scoped_release>())
+      .def("load_ssd2mem",
+           &framework::BoxWrapper::LoadSSD2Mem,
+           py::call_guard<py::gil_scoped_release>())
+      .def("shrink_resource",
+           &framework::BoxWrapper::ShrinkResource,
+           py::call_guard<py::gil_scoped_release>())
+      .def("merge_model",
+           &framework::BoxWrapper::MergeModel,
            py::call_guard<py::gil_scoped_release>());
 }  // end BoxWrapper
 void BindBoxFileMgr(py::module* m) {

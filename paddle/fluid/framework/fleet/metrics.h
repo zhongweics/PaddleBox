@@ -62,7 +62,7 @@ class BasicAucCalculator {
   void add_unlock_data(double pred, int label);
   void add_unlock_data(double pred, int label, float sample_scale);
   void add_unlock_data_with_float_label(double pred, double label);
-  void add_unlock_data_with_continue_label(double pred, double label);
+  void add_unlock_data_with_continue_label(double pred, double label, const std::vector<double>& bucket_thr_value);
   // add batch data
   void add_data(const float* d_pred,
                 const int64_t* d_label,
@@ -85,7 +85,10 @@ class BasicAucCalculator {
                               const float* d_label,
                               const int64_t* d_mask,
                               int batch_size,
-                              const paddle::platform::Place& place);
+                              const paddle::platform::Place& place,
+                              const std::string& bucket_thr_value,
+                              bool ignore_zero_label,
+                              bool compute_order_ratio);
   // add sample data
   void add_sample_data(const float* d_pred,
                        const int64_t* d_label,
@@ -100,14 +103,16 @@ class BasicAucCalculator {
                     const paddle::platform::Place& place);
   void compute();
   void computeContinueMsg();
+  void computeContinueOrderRatio();
   int table_size() const { return _table_size; }
   double bucket_error() const { return _bucket_error; }
   double auc() const { return _auc; }
   double mae() const { return _mae; }
   double actual_ctr() const { return _actual_ctr; }
   double predicted_ctr() const { return _predicted_ctr; }
-  double actual_value() const { return _actual_value; }
+  // double actual_value() const { return _actual_value; }
   double predicted_value() const { return _predicted_value; }
+  std::vector<std::vector<double>> continue_bucket_error() const { return _continue_bucket_error; }
   double rmse() const { return _rmse; }
   std::vector<double>& get_negative() { return _table[0]; }
   std::vector<double>& get_postive() { return _table[1]; }
@@ -118,6 +123,37 @@ class BasicAucCalculator {
   double& local_total_num() { return _local_total_num; }
   // lock and unlock
   std::mutex& table_mutex(void) { return _table_mutex; }
+  template<typename T>
+  int get_bucket_idx(T value, const std::vector<T>& classify_thr_list) {
+    if (classify_thr_list.size() == 0) {
+      return 0;
+    }
+    for (size_t i = 0; i < classify_thr_list.size(); ++i) {
+      if (value < classify_thr_list[i]) {
+        return i;
+      }
+    }
+    return classify_thr_list.size();    
+  }
+  
+  void split_string(const std::string& string_to_split, 
+                    char delimiter, std::vector<double>& tokens)
+  {
+    tokens.clear();
+    std::string word = "";
+    for (size_t i = 0; i < string_to_split.length(); ++i) {
+      if (string_to_split[i] == delimiter) {
+        tokens.push_back(std::stold(word));
+        word.clear();
+      }
+      else {
+        word += string_to_split[i];
+      }
+    }
+    if (word.length() > 0) {
+      tokens.push_back(std::stold(word));
+    }
+  }
 
  public:
   void reset_records();
@@ -152,7 +188,6 @@ class BasicAucCalculator {
   double _rmse = 0;
   double _actual_ctr = 0;
   double _predicted_ctr = 0;
-  double _actual_value = 0;
   double _predicted_value = 0;
   double _bucket_error = 0;
 
@@ -161,6 +196,11 @@ class BasicAucCalculator {
   double _uauc = 0;
   double _wuauc = 0;
   std::vector<WuaucRecord> wuauc_records_;
+  //std::vector<double> _continue_order_ratio_list = std::vector<double>(100, 0.0);
+  //std::vector<std::vector<std::pair<double, double>>> _continue_bucket_pair;
+  std::vector<std::vector<std::pair<double, double>>> _continue_bucket_pair = std::vector<std::vector<std::pair<double, double>>>(100, std::vector<std::pair<double, double>>(10000, std::make_pair<double, double>(0.0, 0.0))); //max bucket_size 100
+  std::vector<std::vector<double>> _continue_bucket_msg = std::vector<std::vector<double>>(100, std::vector<double>(6, 0.0)); //max bucket_size 100 metric_size 6
+  std::vector<std::vector<double>> _continue_bucket_error = std::vector<std::vector<double>>(100, std::vector<double>(6, 0.0)); //max bucket_size 100 metric_size 6
 
  private:
   void set_table_size(int table_size) { _table_size = table_size; }

@@ -84,13 +84,16 @@ void BasicAucCalculator::add_unlock_data_with_float_label(double pred, double la
   _table[1][pos] += label;
 }
 
-void BasicAucCalculator::add_unlock_data_with_continue_label(double pred,
-                                                             double label) {
-  _local_abserr += fabs(pred - label);
-  _local_sqrerr += (pred - label) * (pred - label);
-  _local_pred += pred;
-  _local_label += label;
-  ++_local_total_num;
+void BasicAucCalculator::add_unlock_data_with_continue_label(double pred, double label, const std::vector<double>& bucket_thr_value) {
+
+  int bucket_idx = get_bucket_idx(label, bucket_thr_value);
+
+  _continue_bucket_msg[bucket_idx][0] += fabs(pred - label);
+  _continue_bucket_msg[bucket_idx][1] += (pred - label) * (pred - label);
+  _continue_bucket_msg[bucket_idx][2] += label;
+  _continue_bucket_msg[bucket_idx][3] += pred;
+  _continue_bucket_msg[bucket_idx][4]++;
+  _continue_bucket_pair[bucket_idx].emplace_back(std::make_pair(pred, label));
 }
 
 void BasicAucCalculator::add_data(
@@ -210,7 +213,12 @@ void BasicAucCalculator::add_continue_mask_data(
     const float* d_label,
     const int64_t* d_mask,
     int batch_size,
-    const paddle::platform::Place& place) {
+    const paddle::platform::Place& place,
+    const std::string& continue_bucket_thr,
+    bool ignore_zero_label,
+    bool compute_order_ratio) {
+  std::vector<double> bucket_thr_value;
+  split_string(continue_bucket_thr, ',', bucket_thr_value);
   if (platform::is_gpu_place(place) || platform::is_xpu_place(place)) {
     thread_local std::vector<float> h_pred;
     thread_local std::vector<float> h_label;
@@ -224,17 +232,25 @@ void BasicAucCalculator::add_continue_mask_data(
     SyncCopyD2H(h_mask.data(), d_mask, batch_size);
 
     std::lock_guard<std::mutex> lock(_table_mutex);
+    //std::vector<double> bucket_thr_value;
+    //split_string(continue_bucket_thr, ',', bucket_thr_value);
     for (int i = 0; i < batch_size; ++i) {
-      if (h_mask[i]) {
-        add_unlock_data_with_continue_label(h_pred[i], h_label[i]);
+      if (h_mask[i] && (fabs(h_label[i] - 0.0) > 1e-5 || ignore_zero_label == false)) {
+        add_unlock_data_with_continue_label(h_pred[i], h_label[i], bucket_thr_value);
       }
+    }
+    if (compute_order_ratio) {
+      computeContinueOrderRatio();
     }
   } else {
     std::lock_guard<std::mutex> lock(_table_mutex);
     for (int i = 0; i < batch_size; ++i) {
-      if (d_mask[i]) {
-        add_unlock_data_with_continue_label(d_pred[i], d_label[i]);
+      if (d_mask[i] && (fabs(d_label[i] - 0.0) > 1e-5 || ignore_zero_label == false)) {
+        add_unlock_data_with_continue_label(d_pred[i], d_label[i], bucket_thr_value);
       }
+    }
+    if (compute_order_ratio) {
+      computeContinueOrderRatio();
     }
   }
 }
@@ -260,6 +276,10 @@ void BasicAucCalculator::reset() {
   _local_pred = 0;
   _local_label = 0;
   _local_total_num = 0;
+  for (size_t i = 0; i < 100; i++){
+    _continue_bucket_msg[i].assign(6, 0.0); //metric_size = 6
+    _continue_bucket_pair[i].clear();
+  }
 }
 
 void BasicAucCalculator::compute() {
@@ -534,48 +554,93 @@ void BasicAucCalculator::computeContinueMsg() {
     VLOG(0) << "GLOO is not inited";
     gloo_wrapper->Init();
   }
-  std::vector<double> pair_table;
   node_size = gloo_wrapper->Size();
+  //value_list = {{}, {}, {_local_abserr, _local_sqrerr, _local_pred, _local_label, _local_total_num}}
 #endif
   if (node_size > 1) {
 #ifdef PADDLE_WITH_BOX_PS
     // allreduce sum
-    double local_err[5] = {_local_abserr,
-                           _local_sqrerr,
-                           _local_pred,
-                           _local_label,
-                           _local_total_num};
-    boxps::MPICluster::Ins().allreduce_sum(local_err, 5);
+    double **local_err = nullptr;
+    for(size_t i =0; i < _continue_bucket_msg.size(); ++i) {
+       int length = _continue_bucket_msg[i].size();
+       local_err[i] = &_continue_bucket_msg[i][0];
+       boxps::MPICluster::Ins().allreduce_sum(local_err[i], length);
+    }
 #elif defined(PADDLE_WITH_GLOO)
     // allreduce sum
-    std::vector<double> local_err_temp{_local_abserr,
-                                       _local_sqrerr,
-                                       _local_pred,
-                                       _local_label,
-                                       _local_total_num};
-    auto local_err = gloo_wrapper->AllReduce(local_err_temp, "sum");
+    for(size_t i =0; i < _continue_bucket_msg.size(); ++i) {
+        auto local_err = gloo_wrapper->AllReduce(_continue_bucket_msg[i], "sum");
+    }
 #else
-    // allreduce sum
-    double local_err[5] = {_local_abserr,
-                           _local_sqrerr,
-                           _local_pred,
-                           _local_label,
-                           _local_total_num};
+    std::vector<std::vector<double>> local_err = _continue_bucket_msg;
 #endif
-    _mae = local_err[0] / _local_total_num;
-    _rmse = sqrt(local_err[1] / _local_total_num);
-    _predicted_value = local_err[2] / _local_total_num;
-    _actual_value = local_err[3] / _local_total_num;
+    for(size_t i =0; i < _continue_bucket_msg.size(); ++i) {
+        if (local_err[i][4] <= 0) {
+          continue;
+        }
+        _continue_bucket_error[i][0] = local_err[i][0] / local_err[i][4]; //mae
+        _continue_bucket_error[i][1] = sqrt(local_err[i][1] / local_err[i][4]); //rmse
+        _continue_bucket_error[i][2] = local_err[i][2] / local_err[i][4]; //actual_value
+        _continue_bucket_error[i][3] = local_err[i][3] / local_err[i][4]; //predicted_value
+        _continue_bucket_error[i][4] = local_err[i][4]; //part_ins_num
+        _continue_bucket_error[i][5] = local_err[i][5] / node_size; //positive order ratio
+        _local_total_num += local_err[i][4]; //part_ins_num
+    }
   } else {
-    _mae = _local_abserr / _local_total_num;
-    _rmse = sqrt(_local_sqrerr / _local_total_num);
-    _predicted_value = _local_pred / _local_total_num;
-    _actual_value = _local_label / _local_total_num;
+    for(size_t i =0; i < _continue_bucket_msg.size(); ++i) {
+      if (_continue_bucket_msg[i][4] <= 0) {
+        continue;
+      }
+      _continue_bucket_error[i][0] = _continue_bucket_msg[i][0] / _continue_bucket_msg[i][4]; //mae
+      _continue_bucket_error[i][1] = sqrt(_continue_bucket_msg[i][1] / _continue_bucket_msg[i][4]); //rmse
+      _continue_bucket_error[i][2] = _continue_bucket_msg[i][2] / _continue_bucket_msg[i][4]; //actual_value
+      _continue_bucket_error[i][3] = _continue_bucket_msg[i][3] / _continue_bucket_msg[i][4]; //predicted_value
+      _continue_bucket_error[i][4] = _continue_bucket_msg[i][4]; //part_ins_num
+      _continue_bucket_error[i][5] = _continue_bucket_msg[i][5]; //positive order ratio
+      _local_total_num += _continue_bucket_msg[i][4]; //total_ins_num
+    }
   }
-
   _size = _local_total_num;
 }
 
+void BasicAucCalculator::computeContinueOrderRatio() {
+  std::pair<double, double> pair1;
+  std::pair<double, double> pair2;
+  int rand1 = 0;
+  int rand2 = 0;
+  double pred1 = 0.0;
+  double label1 = 0.0;
+  double pred2 = 0.0;
+  double label2 = 0.0;
+  int max_pair_num = 10000;
+  srand((int)time(0)); 
+  for (int i = 0; i < 100; i++) {
+    if (_continue_bucket_pair[i].size() <= 0) {
+      continue;
+    }
+    int positive_num = 0;
+    int reverse_order_num = 0;
+    for (int j = 0; j < max_pair_num; j++) {
+      rand1 = rand() % _continue_bucket_pair[i].size();
+      rand2 = rand() % _continue_bucket_pair[i].size();
+      pair1 = _continue_bucket_pair[i][rand1];
+      pair2 = _continue_bucket_pair[i][rand2];
+      pred1 = pair1.first;
+      label1 = pair1.second;
+      pred2 = pair2.first;
+      label2 = pair2.second;
+      if (fabs(label1 - label2) < 1e-5) {
+        continue;
+      }
+      if ((pred1 > pred2 && label1 > label2) || (pred1 < pred2 && label1 < label2)) {
+        positive_num++;
+      } else {
+        reverse_order_num++;
+      }
+    }
+    _continue_bucket_msg[i][5] = (double)positive_num / (positive_num + reverse_order_num);
+  }
+}
 }  // namespace framework
 }  // namespace paddle
 #endif

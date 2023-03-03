@@ -283,6 +283,24 @@ class MetricMsg {
 
   int MetricPhase() const { return metric_phase_; }
   BasicAucCalculator* GetCalculator() { return calculator; }
+  void split_string(const std::string& string_to_split,
+                    char delimiter, std::vector<double>& tokens)
+  {
+    tokens.clear();
+    std::string word = "";
+    for (size_t i = 0; i < string_to_split.length(); ++i) {
+      if (string_to_split[i] == delimiter) {
+        tokens.push_back(std::stold(word));
+        word.clear();
+      }
+      else {
+        word += string_to_split[i];
+      }
+    }
+    if (word.length() > 0) {
+      tokens.push_back(std::stold(word));
+    }
+  }
   virtual void add_data(const Scope* exe_scope,
                         const paddle::platform::Place& place) {
     int label_len = 0;
@@ -352,6 +370,9 @@ class MetricMsg {
   std::string pred_varname_;
   std::string sample_scale_varname_;
   int metric_phase_;
+  std::string continue_bucket_thr_; 
+  bool ignore_zero_label_ = false;
+  bool compute_order_ratio_ = false;
   BasicAucCalculator* calculator;
 };
 class BoxWrapper {
@@ -761,8 +782,24 @@ class BoxWrapper {
                   bool mode_collect_in_gpu = false,
                   int max_batch_size = 0,
                   const std::string& sample_scale_varname = "");
+  void InitContinueMetric(const std::string& method,
+                  const std::string& name,
+                  const std::string& label_varname,
+                  const std::string& pred_varname,
+                  const std::string& cmatch_rank_varname,
+                  const std::string& mask_varname,
+                  int metric_phase,
+                  const std::string& cmatch_rank_group,
+                  bool ignore_rank,
+                  int bucket_size = 1000000,
+                  bool mode_collect_in_gpu = false,
+                  int max_batch_size = 0,
+                  const std::string& sample_scale_varname = "",
+                  const std::string& bucket_thr = "",
+                  bool ignore_zero_label = false,
+                  bool compute_order_ratio = false);
   const std::vector<double> GetMetricMsg(const std::string& name);
-  const std::vector<double> GetContinueMetricMsg(const std::string& name);
+  const std::vector<std::vector<double>> GetContinueMetricMsg(const std::string& name);
   // pcoc qvalue tensor
   LoDTensor& GetQTensor(int device) { return device_caches_[device].qvalue; }
   void PrintSyncTimer(int device, double train_span);

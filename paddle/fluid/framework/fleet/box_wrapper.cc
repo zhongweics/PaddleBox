@@ -674,11 +674,17 @@ class ContinueMaskMetricMsg : public MetricMsg {
                         const std::string& mask_varname,
                         int bucket_size = 1000000,
                         bool mode_collect_in_gpu = false,
-                        int max_batch_size = 0) {
+                        int max_batch_size = 0,
+                        const std::string& continue_bucket_thr = "",
+                        bool ignore_zero_label = false,
+                        bool compute_order_ratio = false) {
     label_varname_ = label_varname;
     pred_varname_ = pred_varname;
     mask_varname_ = mask_varname;
     metric_phase_ = metric_phase;
+    continue_bucket_thr_ = continue_bucket_thr;
+    ignore_zero_label_ = ignore_zero_label;
+    compute_order_ratio_ = compute_order_ratio;
     calculator = new BasicAucCalculator(mode_collect_in_gpu);
     calculator->init(bucket_size);
   }
@@ -703,7 +709,7 @@ class ContinueMaskMetricMsg : public MetricMsg {
                           "the label data length"));
     auto cal = GetCalculator();
     cal->add_continue_mask_data(
-        pred_data, label_data, mask_data, label_len, place);
+        pred_data, label_data, mask_data, label_len, place, continue_bucket_thr_, ignore_zero_label_, compute_order_ratio_);
   }
 
  protected:
@@ -849,7 +855,8 @@ void BoxWrapper::InitMetric(const std::string& method,
                             int bucket_size,
                             bool mode_collect_in_gpu,
                             int max_batch_size,
-                            const std::string& sample_scale_varname) {
+                            const std::string& sample_scale_varname
+                            ) {
   if (method == "AucCalculator") {
     metric_lists_.emplace(name,
                           new MetricMsg(label_varname,
@@ -914,7 +921,33 @@ void BoxWrapper::InitMetric(const std::string& method,
                                                  bucket_size,
                                                  mode_collect_in_gpu,
                                                  max_batch_size));
-  } else if (method == "ContinueMaskCalculator") {
+  } else {
+    PADDLE_THROW(platform::errors::Unimplemented(
+        "PaddleBox only support AucCalculator, MultiTaskAucCalculator, "
+        "CmatchRankAucCalculator, MaskAucCalculator, "
+        "FloatMaskAucCalculator and CmatchRankMaskAucCalculator"));
+  }
+  metric_name_list_.emplace_back(name);
+}
+
+void BoxWrapper::InitContinueMetric(const std::string& method,
+                            const std::string& name,
+                            const std::string& label_varname,
+                            const std::string& pred_varname,
+                            const std::string& cmatch_rank_varname,
+                            const std::string& mask_varname,
+                            int metric_phase,
+                            const std::string& cmatch_rank_group,
+                            bool ignore_rank,
+                            int bucket_size,
+                            bool mode_collect_in_gpu,
+                            int max_batch_size,
+                            const std::string& sample_scale_varname,
+                            const std::string& bucket_thr,
+                            bool ignore_zero_label,
+                            bool compute_order_ratio
+                            ) {
+  if (method == "ContinueMaskCalculator") {
     metric_lists_.emplace(name,
                           new ContinueMaskMetricMsg(label_varname,
                                                     pred_varname,
@@ -922,13 +955,13 @@ void BoxWrapper::InitMetric(const std::string& method,
                                                     mask_varname,
                                                     bucket_size,
                                                     mode_collect_in_gpu,
-                                                    max_batch_size));
+                                                    max_batch_size,
+                                                    bucket_thr,
+                                                    ignore_zero_label,
+                                                    compute_order_ratio));
   } else {
     PADDLE_THROW(platform::errors::Unimplemented(
-        "PaddleBox only support AucCalculator, MultiTaskAucCalculator, "
-        "CmatchRankAucCalculator, MaskAucCalculator, "
-        "ContinueMaskCalculator, "
-        "FloatMaskAucCalculator and CmatchRankMaskAucCalculator"));
+        "PaddleBox Continue Metric only support ContinueMaskCalculator"));
   }
   metric_name_list_.emplace_back(name);
 }
@@ -954,21 +987,16 @@ const std::vector<double> BoxWrapper::GetMetricMsg(const std::string& name) {
   return metric_return_values_;
 }
 
-const std::vector<double> BoxWrapper::GetContinueMetricMsg(
+const std::vector<std::vector<double>> BoxWrapper::GetContinueMetricMsg(
     const std::string& name) {
   const auto iter = metric_lists_.find(name);
   PADDLE_ENFORCE_NE(iter,
                     metric_lists_.end(),
                     platform::errors::InvalidArgument(
                         "The metric name you provided is not registered."));
-  std::vector<double> metric_return_values_(5, 0.0);
   auto* continue_cal_ = iter->second->GetCalculator();
   continue_cal_->computeContinueMsg();
-  metric_return_values_[0] = continue_cal_->mae();
-  metric_return_values_[1] = continue_cal_->rmse();
-  metric_return_values_[2] = continue_cal_->actual_value();
-  metric_return_values_[3] = continue_cal_->predicted_value();
-  metric_return_values_[4] = continue_cal_->size();
+  std::vector<std::vector<double>> metric_return_values_ = continue_cal_->continue_bucket_error();
   continue_cal_->reset();
   return metric_return_values_;
 }

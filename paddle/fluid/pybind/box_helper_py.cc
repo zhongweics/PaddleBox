@@ -112,6 +112,37 @@ void BindBoxWrapper(py::module* m) {
            py::arg("max_batch_size") = 0,
            py::arg("sample_scale_varnam") = "",
            py::call_guard<py::gil_scoped_release>())
+      .def("init_continue_metric",
+           &framework::BoxWrapper::InitContinueMetric,
+           py::arg("method"),
+           py::arg("name"),
+           py::arg("label_varname"),
+           py::arg("pred_varname"),
+           py::arg("cmatch_rank_varname"),
+           py::arg("mask_varname"),
+           py::arg("metric_phase"),
+           py::arg("cmatch_rank_group"),
+           py::arg("ignore_rank"),
+           py::arg("bucket_size") = 1000000,
+           py::arg("mode_collect_in_gpu") = false,
+           py::arg("max_batch_size") = 0,
+           py::arg("sample_scale_varnam") = "",
+           py::arg("bucket_thr") = "",
+           py::arg("ignore_zero_label") = false,
+           py::arg("compute_order_ratio") = false,
+           py::call_guard<py::gil_scoped_release>())
+      .def("get_metric_msg",
+           &framework::BoxWrapper::GetMetricMsg,
+           py::call_guard<py::gil_scoped_release>())
+      .def("get_continue_metric_msg",
+           &framework::BoxWrapper::GetContinueMetricMsg,
+           py::call_guard<py::gil_scoped_release>())
+      .def("get_metric_name_list",
+           &framework::BoxWrapper::GetMetricNameList,
+           py::call_guard<py::gil_scoped_release>())
+      .def("flip_phase",
+           &framework::BoxWrapper::FlipPhase,
+           py::call_guard<py::gil_scoped_release>())
       .def("get_metric_msg",
            &framework::BoxWrapper::GetMetricMsg,
            py::call_guard<py::gil_scoped_release>())

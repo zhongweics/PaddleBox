@@ -143,18 +143,6 @@ void BindBoxWrapper(py::module* m) {
       .def("flip_phase",
            &framework::BoxWrapper::FlipPhase,
            py::call_guard<py::gil_scoped_release>())
-      .def("get_metric_msg",
-           &framework::BoxWrapper::GetMetricMsg,
-           py::call_guard<py::gil_scoped_release>())
-      .def("get_continue_metric_msg",
-           &framework::BoxWrapper::GetContinueMetricMsg,
-           py::call_guard<py::gil_scoped_release>())
-      .def("get_metric_name_list",
-           &framework::BoxWrapper::GetMetricNameList,
-           py::call_guard<py::gil_scoped_release>())
-      .def("flip_phase",
-           &framework::BoxWrapper::FlipPhase,
-           py::call_guard<py::gil_scoped_release>())
       .def("set_phase",
            &framework::BoxWrapper::SetPhase,
            py::call_guard<py::gil_scoped_release>())
